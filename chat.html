@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NEXUS AI — Чат</title>
+    <link rel="icon" href="assets/logo.png">
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="chat-page">
+
+    <aside id="sidebar" class="sidebar glass">
+        <div class="sidebar-header">
+            <img src="assets/logo.png" alt="NEXUS" class="sidebar-logo">
+            <button id="new-chat-btn" class="btn-new-chat" title="Новый чат">
+                <i class="fas fa-plus"></i>
+            </button>
+        </div>
+
+        <div class="sidebar-search">
+            <i class="fas fa-search"></i>
+            <input type="text" id="chat-search" placeholder="Поиск чатов...">
+        </div>
+
+        <div id="chat-list" class="chat-list"></div>
+
+        <div class="sidebar-profile glass">
+            <div class="profile-info">
+                <div class="profile-avatar" id="user-avatar"><i class="fas fa-user"></i></div>
+                <span id="user-name" class="profile-name">Пользователь</span>
+            </div>
+            <button id="logout-btn" class="btn-logout" title="Выйти">
+                <i class="fas fa-sign-out-alt"></i>
+            </button>
+        </div>
+    </aside>
+
+    <div id="sidebar-overlay" class="sidebar-overlay"></div>
+
+    <main class="chat-main">
+        <header class="chat-header glass">
+            <button id="menu-toggle" class="btn-menu"><i class="fas fa-bars"></i></button>
+            <div class="chat-header-info">
+                <div class="chat-header-title">
+                    <div class="nexus-icon"><i class="fas fa-infinity"></i></div>
+                    <h1>NEXUS</h1>
+                </div>
+                <span class="chat-header-status">
+                    <span class="status-dot"></span>
+                    Онлайн
+                </span>
+            </div>
+            <div class="chat-header-actions">
+                <button id="clear-chat-btn" class="btn-icon" title="Очистить чат">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>
+        </header>
+
+        <div id="messages" class="messages-container">
+            <div id="welcome-screen" class="welcome-screen">
+                <div class="welcome-logo">
+                    <img src="assets/logo.png" alt="NEXUS">
+                </div>
+                <h2>Добро пожаловать в <span class="gradient-text">NEXUS</span></h2>
+                <p>Ваш персональный ИИ-ассистент</p>
+                <div class="welcome-suggestions">
+                    <button class="suggestion-chip" data-text="Расскажи о себе">
+                        <i class="fas fa-robot"></i> Расскажи о себе
+                    </button>
+                    <button class="suggestion-chip" data-text="Помоги написать код">
+                        <i class="fas fa-code"></i> Помоги с кодом
+                    </button>
+                    <button class="suggestion-chip" data-text="Напиши красивый текст">
+                        <i class="fas fa-pen-fancy"></i> Напиши текст
+                    </button>
+                    <button class="suggestion-chip" data-text="Объясни простыми словами квантовую физику">
+                        <i class="fas fa-atom"></i> Объясни науку
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area glass">
+            <div class="input-wrapper">
+                <div id="image-preview" class="image-preview hidden">
+                    <img id="preview-img" src="" alt="preview">
+                    <button id="remove-image" class="btn-remove-image">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <div class="input-row">
+                    <button id="attach-btn" class="btn-attach" title="Прикрепить фото">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <input type="file" id="file-input" accept="image/*" hidden>
+
+                    <textarea id="message-input" placeholder="Напишите сообщение..." rows="1" autofocus></textarea>
+
+                    <button id="send-btn" class="btn-send" disabled>
+                        <i class="fas fa-arrow-up"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="js/firebase-config.js"></script>
+    <script src="js/chat.js"></script>
+</body>
+</html>
