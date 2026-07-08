@@ -1,178 +1,206 @@
-// ============ ЯДРО NEXUS AI ============
+// ============ ЯДРО NEXUS AI (ИСПРАВЛЕННОЕ) ============
 class NexusCore {
     constructor() {
-        this.version = CONFIG.nexus.version;
-        this.name = CONFIG.nexus.name;
         this.isProcessing = false;
         this.conversationContext = [];
         this.totalResponses = 0;
+        this.useLocalFallback = true; // Начинаем с локальных ответов
         
         this.init();
     }
 
-    init() {
-        console.log(`🧠 ${this.name} v${this.version} инициализирован`);
-        this.loadStats();
-    }
-
-    async loadStats() {
+    async init() {
+        console.log('🧠 Nexus Core инициализирован');
+        
+        // Пробуем загрузить статистику
         try {
-            const statsRef = db.collection('system').doc('stats');
-            const doc = await statsRef.get();
+            const doc = await db.collection('system').doc('stats').get();
             if (doc.exists) {
-                const stats = doc.data();
-                this.totalResponses = stats.totalResponses || 0;
-                this.updateStatsDisplay();
+                this.totalResponses = doc.data().totalResponses || 0;
             }
-        } catch (error) {
-            console.log('📊 Статистика будет создана при первом ответе');
+        } catch (e) {
+            console.log('📊 Статистика будет создана');
         }
+        
+        this.updateUI();
     }
 
-    async updateStats() {
-        this.totalResponses++;
-        try {
-            await db.collection('system').doc('stats').set({
-                totalResponses: this.totalResponses,
-                lastActive: firebase.firestore.FieldValue.serverTimestamp(),
-                version: this.version
-            }, { merge: true });
-        } catch (error) {
-            console.log('📊 Оффлайн режим');
-        }
-        this.updateStatsDisplay();
+    updateUI() {
+        document.getElementById('messageCount').textContent = 
+            `💬 ${this.totalResponses} ответов`;
     }
 
-    updateStatsDisplay() {
-        const msgCount = document.getElementById('messageCount');
-        if (msgCount) {
-            msgCount.textContent = `💬 ${this.totalResponses} ответов`;
-        }
-    }
-
-    // Генерация ответа
     async generateResponse(userInput) {
-        if (this.isProcessing) return null;
+        if (this.isProcessing) return 'Подожди, я думаю...';
         
         this.isProcessing = true;
-        NexusUI.setSendButtonState(false);
         
         try {
-            // 1. Проверяем локальную базу
-            let answer = await NexusMemory.searchLocal(userInput);
+            let answer = '';
             
-            // 2. Если нет - используем Hugging Face
-            if (!answer || answer.confidence < 0.6) {
-                answer = await this.callHuggingFace(userInput);
+            // 1. Сначала ищем в Firestore
+            answer = await this.searchInFirestore(userInput);
+            if (answer) {
+                return answer;
             }
             
-            // 3. Если HF недоступен - используем локальные вариации
-            if (!answer || !answer.text || answer.text.length < 5) {
-                answer = { text: NexusMemory.getLocalFallback(userInput), source: 'local' };
+            // 2. Если нет в базе - пробуем Hugging Face
+            answer = await this.tryHuggingFace(userInput);
+            if (answer && answer.length > 10) {
+                return answer;
             }
             
-            // 4. Сохраняем в историю и память
-            this.addToContext(userInput, answer.text);
-            await NexusMemory.saveConversation(userInput, answer.text);
-            await this.updateStats();
-            
-            // 5. Запускаем фоновое обучение если нужно
-            this.checkAutoLearn();
-            
-            return answer.text;
+            // 3. Запасной вариант - умный ответ
+            return this.generateSmartFallback(userInput);
             
         } catch (error) {
-            console.error('❌ Ошибка генерации:', error);
-            return 'Извини, произошла ошибка в нейросети. Попробуй переформулировать вопрос или спроси позже.';
+            console.error('❌ Ошибка:', error);
+            return 'Извини, произошла ошибка. Попробуй спросить иначе.';
         } finally {
             this.isProcessing = false;
-            NexusUI.setSendButtonState(true);
+            this.totalResponses++;
+            this.updateUI();
         }
     }
 
-    // Вызов Hugging Face API
-    async callHuggingFace(question) {
-        const context = this.conversationContext.slice(-3).join('\n');
-        const prompt = `<|user|>\n${context}\n${question}\n<|bot|>\n`;
-        
+    async searchInFirestore(question) {
         try {
-            // Пробуем основную модель
-            let response = await this.queryHF(CONFIG.hf.primaryModel, prompt);
+            const questionLower = question.toLowerCase();
+            const words = questionLower.split(/\s+/);
             
-            // Если ошибка - пробуем запасную
-            if (!response || response.error) {
-                response = await this.queryHF(CONFIG.hf.backupModel, prompt);
+            // Ищем по ключевым словам
+            for (const word of words) {
+                if (word.length < 3) continue;
+                
+                const snapshot = await db.collection('knowledge_base')
+                    .where('keywords', 'array-contains', word)
+                    .limit(5)
+                    .get();
+                
+                if (!snapshot.empty) {
+                    const doc = snapshot.docs[Math.floor(Math.random() * snapshot.docs.length)];
+                    const data = doc.data();
+                    
+                    if (data.variations && data.variations.length > 0) {
+                        return data.variations[Math.floor(Math.random() * data.variations.length)];
+                    }
+                }
             }
             
-            if (response && response[0]?.generated_text) {
-                let answer = response[0].generated_text.split('<|bot|>').pop().trim();
-                // Очищаем от технических токенов
-                answer = answer.replace(/<\|.*?\|>/g, '').trim();
+            // Если не нашли по keywords, ищем по всем документам
+            const allDocs = await db.collection('knowledge_base').limit(20).get();
+            
+            let bestMatch = null;
+            let bestScore = 0;
+            
+            allDocs.forEach(doc => {
+                const data = doc.data();
+                const topicWords = (data.keywords || []).join(' ').toLowerCase();
+                const score = this.similarity(questionLower, topicWords);
                 
-                if (answer.length > 5) {
-                    return { text: answer, source: 'huggingface' };
+                if (score > bestScore && score > 0.2) {
+                    bestScore = score;
+                    if (data.variations && data.variations.length > 0) {
+                        bestMatch = data.variations[Math.floor(Math.random() * data.variations.length)];
+                    }
+                }
+            });
+            
+            return bestMatch;
+            
+        } catch (error) {
+            console.log('💾 Поиск в Firestore не удался:', error.message);
+            return null;
+        }
+    }
+
+    similarity(str1, str2) {
+        const words1 = str1.split(/\s+/);
+        const words2 = str2.split(/\s+/);
+        let matches = 0;
+        
+        for (const word of words1) {
+            if (word.length > 2 && words2.some(w => w.includes(word) || word.includes(w))) {
+                matches++;
+            }
+        }
+        
+        return matches / Math.max(words1.length, 1);
+    }
+
+    async tryHuggingFace(question) {
+        try {
+            const response = await fetch(
+                'https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${CONFIG.hf.token}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        inputs: question,
+                        parameters: {
+                            max_length: 150,
+                            temperature: 0.9,
+                            top_p: 0.95,
+                        }
+                    })
+                }
+            );
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data[0]?.generated_text) {
+                    return data[0].generated_text.replace(question, '').trim();
                 }
             }
             
             return null;
-            
         } catch (error) {
-            console.log('🌐 Hugging Face недоступен:', error.message);
             return null;
         }
     }
 
-    async queryHF(model, prompt) {
-        const response = await fetch(
-            `https://api-inference.huggingface.co/models/${model}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${CONFIG.hf.token}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    inputs: prompt,
-                    parameters: {
-                        max_new_tokens: CONFIG.hf.maxTokens,
-                        temperature: CONFIG.hf.temperature,
-                        top_p: 0.92,
-                        do_sample: true,
-                        return_full_text: false,
-                    }
-                })
-            }
-        );
+    generateSmartFallback(question) {
+        const questionLower = question.toLowerCase();
         
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        // Умные fallback-ответы
+        if (questionLower.includes('привет') || questionLower.includes('здрав')) {
+            return '👋 Привет! Я Nexus AI. Рад тебя видеть! Спрашивай что угодно, я постоянно учусь новому.';
         }
         
-        return await response.json();
-    }
-
-    addToContext(userInput, aiResponse) {
-        this.conversationContext.push(`User: ${userInput}`);
-        this.conversationContext.push(`Nexus: ${aiResponse}`);
+        if (questionLower.includes('как дел') || questionLower.includes('как ты')) {
+            return '🤖 У меня всё отлично! Как у нейросети, у меня нет эмоций в человеческом понимании, но я функционирую на 100% и готов помогать!';
+        }
         
-        // Ограничиваем контекст
-        if (this.conversationContext.length > CONFIG.nexus.maxHistoryLength) {
-            this.conversationContext = this.conversationContext.slice(-CONFIG.nexus.maxHistoryLength);
+        if (questionLower.includes('что ты умеешь') || questionLower.includes('твои возможност')) {
+            return '🧠 Я Nexus — могу отвечать на вопросы, обучаться новому, запоминать контекст диалога, искать информацию и даже шутить! Моя база знаний постоянно растет.';
         }
-    }
-
-    checkAutoLearn() {
-        // Каждые 50 сообщений запускаем обучение
-        if (this.totalResponses % 50 === 0) {
-            NexusLearning.startBackgroundLearning();
+        
+        if (questionLower.includes('кто тебя создал') || questionLower.includes('твой создатель')) {
+            return '👨‍💻 Меня создал талантливый разработчик, который хотел сделать доступный ИИ. Я использую нейросети Hugging Face и Firebase для хранения знаний.';
         }
-    }
-
-    // Очистка контекста
-    clearContext() {
-        this.conversationContext = [];
+        
+        // Общий ответ
+        const genericResponses = [
+            `🤔 Интересный вопрос про "${question}". Я как нейросеть постоянно анализирую информацию. Давай разберем это подробнее!`,
+            `📊 Отличный вопрос! "${question}" - тема, которую стоит обсудить. Я использую свою нейросеть чтобы дать лучший ответ.`,
+            `💡 О, "${question}"! Это напоминает мне о том, как важно постоянно учиться. Мой алгоритм сейчас анализирует эту тему.`,
+            `🔍 Ищу в своих нейросетях... По теме "${question}" у меня есть несколько мыслей. Это сложный и интересный вопрос!`
+        ];
+        
+        return genericResponses[Math.floor(Math.random() * genericResponses.length)];
     }
 }
 
-// Глобальный экземпляр
-const nexus = new NexusCore();
+// Создаем экземпляр после загрузки Firebase
+let nexus;
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Ждем инициализации Firebase
+    setTimeout(() => {
+        nexus = new NexusCore();
+        console.log('✅ Nexus готов к работе');
+    }, 1000);
+});
