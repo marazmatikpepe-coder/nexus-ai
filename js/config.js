@@ -10,14 +10,14 @@ const CONFIG = {
         appId: "1:1056967699954:web:90c934ef1042f8778e0f6b"
     },
     
-    // Hugging Face API
-    hf: {
-        token: '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',
-        primaryModel: 'ai-forever/ruGPT-3.5-13B',
-        backupModel: 'sberbank-ai/rugpt3large_based_on_gpt2',
-        maxTokens: 250,
-        temperature: 0.8
-    },
+    // блок hf:
+hf: {
+    token: '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',
+    primaryModel: 'microsoft/DialoGPT-medium',  // Работает быстро
+    backupModel: 'sberbank-ai/rugpt3small_based_on_gpt2',  // Русская легкая
+    maxTokens: 150,
+    temperature: 0.85
+},
     
     // Настройки Nexus
     nexus: {
