@@ -236,32 +236,72 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function callNexusAPI(userText, imageBase64 = null) {
-        const messages = [{ role: 'system', text: SYSTEM_PROMPT }];
-        chatHistory.forEach(msg => {
-            if (msg.role === 'system') return;
-            messages.push({ role: msg.role === 'user' ? 'user' : 'assistant', text: msg.text });
-        });
-        if (imageBase64) {
-            const lastMsg = messages[messages.length - 1];
-            if (lastMsg && lastMsg.role === 'user') {
-                lastMsg.text = `[Пользователь прикрепил изображение] ${lastMsg.text}`;
+    const messages = [{ role: 'system', text: SYSTEM_PROMPT }];
+    chatHistory.forEach(msg => {
+        if (msg.role === 'system') return;
+        messages.push({ role: msg.role === 'user' ? 'user' : 'assistant', text: msg.text });
+    });
+    if (imageBase64) {
+        const lastMsg = messages[messages.length - 1];
+        if (lastMsg && lastMsg.role === 'user') {
+            lastMsg.text = `[Пользователь прикрепил изображение] ${lastMsg.text}`;
+        }
+    }
+
+    // Функция одной попытки
+    async function tryFetch() {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 сек таймаут
+
+        try {
+            const response = await fetch(WORKER_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages }),
+                signal: controller.signal,
+                cache: 'no-store',
+                mode: 'cors'
+            });
+            clearTimeout(timeoutId);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const data = await response.json();
+            if (data.error) throw new Error(data.error + ': ' + (data.details || data.message || ''));
+            if (!data.text) throw new Error('Пустой ответ');
+            return data.text;
+        } catch (err) {
+            clearTimeout(timeoutId);
+            throw err;
+        }
+    }
+
+    // Пробуем 3 раза с задержкой
+    const maxAttempts = 3;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            console.log(`Попытка ${attempt}/${maxAttempts}...`);
+            const result = await tryFetch();
+            console.log(`✅ Успех на попытке ${attempt}`);
+            return result;
+        } catch (err) {
+            console.warn(`❌ Попытка ${attempt} провалилась:`, err.message);
+            lastError = err;
+
+            // Ждём перед следующей попыткой (1с, 2с, 4с)
+            if (attempt < maxAttempts) {
+                const delay = 1000 * Math.pow(2, attempt - 1);
+                console.log(`⏳ Жду ${delay}ms перед следующей попыткой...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
             }
         }
-
-        const response = await fetch(WORKER_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messages })
-        });
-
-        if (!response.ok) {
-            const errText = await response.text();
-            throw new Error(`API error: ${response.status} - ${errText}`);
-        }
-        const data = await response.json();
-        if (!data.text) throw new Error('Пустой ответ');
-        return data.text;
     }
+
+    throw new Error(`Все ${maxAttempts} попыток провалились. Последняя ошибка: ${lastError?.message}`);
+}
 
     async function saveChat() {
         if (!currentChatId || !currentUser) return;
